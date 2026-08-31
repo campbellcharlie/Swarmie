@@ -2037,6 +2037,10 @@ class StepResult:
     sampled_out: int = 0
     cursor: int = 0
     caught_up: bool = False
+    # Per-detector / per-stage funnel attribution (#3): which reasons fire how often, and where
+    # wall-clock goes. Turns "emitted N, sampled_out M" into "reason X dominates; stage Y is the cost".
+    reason_counts: dict = dataclasses.field(default_factory=dict)
+    stage_us: dict = dataclasses.field(default_factory=dict)
 
 
 class PassiveTailer:
@@ -2158,6 +2162,7 @@ class PassiveTailer:
 
     def step(self) -> StepResult:
         self._load_alpn()
+        _t0 = time.perf_counter()
         after = max(0, self.cursor - self.overlap)
         rows = self.conn.execute(
             _META_SELECT + " WHERE t.request_id > ? ORDER BY t.request_id ASC LIMIT ?",
@@ -2257,6 +2262,7 @@ class PassiveTailer:
                 break
         candidates = selected
 
+        _t_meta = time.perf_counter()  # end of the metadata+selection stage (every-row, cheap lane)
         envelopes: list[dict] = []
         before_dupes = sum(self.engine.seen_pairs.values()) - len(self.engine.seen_pairs)
         reason_by_id = dict(candidates)
@@ -2279,6 +2285,7 @@ class PassiveTailer:
                 envelope = self.engine.build_signal(dict(raw), reason_by_id[int(raw["request_id"])])
                 if envelope:
                     envelopes.append(envelope)
+        _t_body = time.perf_counter()  # end of the body-hydration + build_signal stage (expensive lane)
         self._score_interest(envelopes)
         _append_jsonl(self.mailbox, envelopes)
         if envelopes:
@@ -2286,11 +2293,16 @@ class PassiveTailer:
         self._update_graph(envelopes)
         _save_checkpoint(self.checkpoint, self.source, self.cursor)
         after_dupes = sum(self.engine.seen_pairs.values()) - len(self.engine.seen_pairs)
+        reason_counts = collections.Counter(
+            r for env in envelopes for r in env["observation"]["reasons"])
         return StepResult(
             scanned=len(fresh), eligible=eligible_count, hydrated=len(candidates), emitted=len(envelopes),
             duplicates=after_dupes - before_dupes, cursor=self.cursor,
             sampled_out=max(0, eligible_count - len(candidates)),
             caught_up=len(rows) < self.batch_size + self.overlap,
+            reason_counts=dict(reason_counts),
+            stage_us={"metadata": round((_t_meta - _t0) * 1e6),
+                      "body_hydrate": round((_t_body - _t_meta) * 1e6)},
         )
 
     def _update_graph(self, envelopes: list[dict]) -> None:
@@ -2453,6 +2465,10 @@ def main(argv=None) -> int:
             step = tailer.step()
             for field in ("scanned", "eligible", "hydrated", "emitted", "duplicates", "sampled_out"):
                 setattr(totals, field, getattr(totals, field) + getattr(step, field))
+            for r, c in step.reason_counts.items():
+                totals.reason_counts[r] = totals.reason_counts.get(r, 0) + c
+            for k, v in step.stage_us.items():
+                totals.stage_us[k] = totals.stage_us.get(k, 0) + v
             totals.cursor = step.cursor
             if args.max_rows and totals.scanned >= args.max_rows:
                 break
@@ -2465,11 +2481,17 @@ def main(argv=None) -> int:
     finally:
         tailer.close()
     elapsed = max(1e-9, time.monotonic() - started)
-    print(json.dumps({
-        **dataclasses.asdict(totals), "elapsed_seconds": round(elapsed, 3),
+    summary = dataclasses.asdict(totals)
+    reason_counts = summary.pop("reason_counts", {})
+    # per-detector funnel: which reasons fired how often (the noise localizer), most-frequent first.
+    # A list of [reason, count] so it stays count-ordered even under json sort_keys.
+    summary["reason_funnel"] = sorted(reason_counts.items(), key=lambda kv: -kv[1])[:30]
+    summary.update({
+        "elapsed_seconds": round(elapsed, 3),
         "metadata_rows_per_second": round(totals.scanned / elapsed, 1),
         "source_mode": "read-only", "mailbox": str(Path(args.mailbox).resolve()),
-    }, sort_keys=True))
+    })
+    print(json.dumps(summary, sort_keys=True))
     return 0
 
 

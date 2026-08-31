@@ -109,13 +109,19 @@ def _handle_check(args) -> int:
     if not pend:
         print(json.dumps({"pending": 0, "status": "clear"}))
         return 0
-    pend.sort(key=lambda s: -s["attention"]["score"])
+    # Order by the corpus-rarity-adjusted score (rank-time #2): a reason that fires on half the
+    # corpus stops dominating, so rarer/more-specific pending signals surface within --limit. Rarity
+    # frequencies come from the whole mailbox, not just the pending subset. Dedup is deliberately
+    # OFF here: the gate must keep every pending signal individually accountable, and collapsing
+    # same-lead repeats would hide signals that still owe a disposition.
+    from .rerank import rerank
+    ranked = rerank(pend, reference=list(_signals(args.mailbox).values()), dedup=False)
     must = [{
         "request_id": s["request_id"], "attention": s["attention"]["score"],
         "endpoint": f'{s["endpoint"]["method"]} {s["endpoint"]["host"]}{s["endpoint"]["path_shape"]}',
         "reasons": s["observation"]["reasons"],
         "answer_each_question": questions_for(s),
-    } for s in pend[:args.limit]]
+    } for s in ranked[:args.limit]]
     print(json.dumps({"pending": len(pend), "status": "BLOCKED",
                       "must_answer_each": must}, indent=2))
     return 2

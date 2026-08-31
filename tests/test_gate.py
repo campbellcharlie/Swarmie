@@ -150,3 +150,31 @@ def test_transient_temp_mailboxes_do_not_arm_the_gate(tmp_path, monkeypatch):
 
     P._register_mailbox(tmp_path / "scratch.jsonl")
     assert not (tmp_path / ".swarmie" / "mailboxes.json").exists()
+
+
+# --- #5: the gate's own self-test (a fail-open gate can't otherwise be told from a quiet one) ---
+
+def test_selftest_passes_on_healthy_machinery():
+    import rqswarm_eval.gate as G
+    ok, notes = G._selftest()
+    assert ok is True
+    assert all(n.startswith("ok:") for n in notes) and len(notes) == 5
+    assert G._handle_selftest(None) == 0
+
+
+def test_selftest_catches_the_silent_fail_open(monkeypatch):
+    """The exact failure the selftest exists for: a gate that never reports anything pending
+    (fail-open / broken channel) must be caught, not read as 'clear'."""
+    import rqswarm_eval.gate as G
+    monkeypatch.setattr(G, "pending", lambda *a, **k: [])   # gate silently blocks nothing
+    ok, notes = G._selftest()
+    assert ok is False
+    assert any("FAIL" in n and "pending" in n for n in notes)
+    assert G._handle_selftest(None) == 1
+
+
+def test_selftest_catches_broken_question_extraction(monkeypatch):
+    import rqswarm_eval.gate as G
+    monkeypatch.setattr(G, "questions_for", lambda s: [])   # loses the signal's questions
+    ok, _ = G._selftest()
+    assert ok is False

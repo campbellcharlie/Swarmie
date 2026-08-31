@@ -54,7 +54,20 @@ def _targets() -> list[tuple[str, str]]:
     return out
 
 
+def _run_gate(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(REPO / "rqswarm_eval" / "gate.py"), *args],
+                          capture_output=True, text=True)
+
+
 def main() -> int:
+    # `--selftest`: verify the gate machinery itself (a fail-open gate can't otherwise be told
+    # apart from a quiet one). Runs before reading the Stop payload so it works when invoked by hand.
+    if "--selftest" in sys.argv[1:]:
+        proc = _run_gate("selftest")
+        sys.stdout.write(proc.stdout)
+        if proc.stderr:
+            sys.stderr.write(proc.stderr)
+        return proc.returncode
     try:
         json.load(sys.stdin)  # consume the Stop-hook payload (unused)
     except Exception:
@@ -62,28 +75,34 @@ def main() -> int:
     if not ROOT.is_dir():
         return 0  # gate inactive — no live investigation
 
-    blocked = []
+    blocked, broken = [], []
     for mailbox, disp in _targets():
-        proc = subprocess.run(
-            [sys.executable, str(REPO / "rqswarm_eval" / "gate.py"),
-             "check", "--mailbox", mailbox, "--dispositions", disp,
-             "--dispositions", str(LEDGER), "--limit", "15"],
-            capture_output=True, text=True)
+        proc = _run_gate("check", "--mailbox", mailbox, "--dispositions", disp,
+                         "--dispositions", str(LEDGER), "--limit", "15")
         if proc.returncode == 2:
             blocked.append((mailbox, disp, proc.stdout))
+        elif proc.returncode != 0:
+            # A crashed gate returns neither 0 (clear) nor 2 (blocked). Fail-open would read that
+            # as clear and silently un-gate the turn — a broken channel is not a quiet one. Surface it.
+            broken.append((mailbox, (proc.stderr or proc.stdout or "gate exited nonzero").strip()[:400]))
 
-    if not blocked:
+    if not blocked and not broken:
         return 0
-    detail = "\n".join(
-        f"--- mailbox: {m}\n    record with --dispositions {d}\n{body}" for m, d, body in blocked)
-    print(json.dumps({
-        "decision": "block",
-        "reason": ("Swarmie response gate: signals are UN-ANSWERED across "
-                   f"{len(blocked)} mailbox(es). You do not have the right to ignore them. "
-                   "Disposition every one via `python3 -m rqswarm_eval.gate record "
-                   "--dispositions <path> --request-id <id> "
-                   "--verdict inspect|acted|pivot|dismiss|defer --reason '<why>'` "
-                   "before ending the turn.\n" + detail)}))
+    parts = []
+    if blocked:
+        parts.append(f"{len(blocked)} mailbox(es) have UN-ANSWERED signals — you do not have the "
+                     "right to ignore them; disposition every one via `python3 -m rqswarm_eval.gate "
+                     "record --dispositions <path> --request-id <id> --verdict "
+                     "inspect|acted|pivot|dismiss|defer --reason '<why>'`")
+    if broken:
+        parts.append(f"{len(broken)} mailbox(es) FAILED the gate self-check — the gate could not "
+                     "verify them, which is NOT the same as clear; fix it (`python3 "
+                     f"{Path(__file__).resolve()} --selftest`) before ending")
+    detail = "\n".join(f"--- BLOCKED mailbox: {m}\n    record with --dispositions {d}\n{body}"
+                       for m, d, body in blocked)
+    detail += "\n" + "\n".join(f"--- BROKEN mailbox: {m}\n    {err}" for m, err in broken)
+    print(json.dumps({"decision": "block",
+                      "reason": "Swarmie response gate: " + "; ".join(parts) + ".\n" + detail}))
     return 0
 
 

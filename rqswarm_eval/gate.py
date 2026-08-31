@@ -143,6 +143,50 @@ def _handle_record(args) -> int:
     return 0
 
 
+def _selftest() -> tuple[bool, list[str]]:
+    """Exercise the real check path end-to-end on a synthetic signal, so a silently-broken gate is
+    distinguishable from a legitimately-quiet one. The gate fails OPEN (a crash reads as 'clear'),
+    so 'no block' alone proves nothing; this proves the machinery — signal parsing, question
+    extraction, disposition union, and the answered/pending logic — actually works right now."""
+    import tempfile
+    notes: list[str] = []
+    ok = True
+
+    def check(cond: bool, msg: str) -> None:
+        nonlocal ok
+        ok = ok and bool(cond)
+        notes.append(("ok:   " if cond else "FAIL: ") + msg)
+
+    signal = {
+        "schema": "swarmie.signal.v1", "request_id": 1, "attention": {"score": 42},
+        "endpoint": {"method": "POST", "host": "selftest.invalid", "path_shape": "/x"},
+        "observation": {"reasons": ["selftest_probe"]},
+        "interrogation": {"lenses": [{"persona": "selftest", "ask": ["Q1?", "Q2?"]}]},
+    }
+    check(questions_for(signal) == ["Q1?", "Q2?"], "questions_for extracts the signal's questions")
+    with tempfile.TemporaryDirectory() as d:
+        mbox, disp, empty = (str(Path(d) / n) for n in ("m.jsonl", "d.jsonl", "e.jsonl"))
+        Path(mbox).write_text(json.dumps(signal) + "\n")
+        Path(empty).write_text("")
+        check(len(pending(mbox, disp)) == 1, "un-answered signal is pending (gate would BLOCK)")
+        check(pending(empty, disp) == [], "empty mailbox reads clear (quiet, not broken)")
+        Path(disp).write_text(json.dumps({
+            "request_id": 1, "verdict": "dismiss", "reason": "selftest",
+            "answers": [{"question": "Q1?", "answer": "a"}]}) + "\n")
+        check(len(pending(mbox, disp)) == 1, "a partially-answered signal stays pending")
+        Path(disp).write_text(json.dumps({
+            "request_id": 1, "verdict": "dismiss", "reason": "selftest",
+            "answers": [{"question": "Q1?", "answer": "a"}, {"question": "Q2?", "answer": "b"}]}) + "\n")
+        check(pending(mbox, disp) == [], "a fully-answered signal clears")
+    return ok, notes
+
+
+def _handle_selftest(args) -> int:
+    ok, notes = _selftest()
+    print(json.dumps({"selftest": "ok" if ok else "BROKEN", "checks": notes}, indent=2))
+    return 0 if ok else 1
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Swarmie signal response gate")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -160,6 +204,8 @@ def main(argv=None) -> int:
     r.add_argument("--answer", action="append",
                    help="'question::answer' for one of the signal's questions (repeatable)")
     r.set_defaults(fn=_handle_record)
+    s = sub.add_parser("selftest", help="verify the gate machinery end-to-end (0=ok, 1=broken)")
+    s.set_defaults(fn=_handle_selftest)
     args = ap.parse_args(argv)
     return args.fn(args)
 

@@ -11,6 +11,7 @@ import calendar as _calendar
 import collections
 import dataclasses
 import fcntl
+import gzip
 import hashlib
 import json
 import math
@@ -19,9 +20,10 @@ import re
 import sqlite3
 import tempfile
 import time
+import zlib
 from pathlib import Path
 from typing import Iterable
-from urllib.parse import urlsplit, parse_qs, unquote_plus
+from urllib.parse import urlsplit, parse_qs, unquote_plus, unquote_to_bytes
 
 from .learned_lane import make_lane
 from .perception.obs_features import FEATURE_NAMES, feature_list
@@ -58,6 +60,10 @@ _PERSONA_QUESTIONS: dict[str, tuple[str, list[str]]] = {
     "encrypted_outbound_blob": ("data-exfiltration", [
         "What is in this opaque body — a device/behavioral fingerprint, harvested storage, or exfiltrated data?",
         "Who is the recipient, is it first- or third-party, and did the user consent to what leaves?",
+    ]),
+    "encoded_blob_decoded": ("data-exfiltration", [
+        "The blob is not encrypted — the codec chain decodes it; what structured data does it actually carry?",
+        "Is trivially-reversible obfuscation (base64/gzip) being used to move data past inspection without consent?",
     ]),
     "opaque_outbound_body": ("data-exfiltration", [
         "This opaque body goes to a site the user navigated to — first-party telemetry, or a first-party "
@@ -369,6 +375,82 @@ def _shannon_entropy(data: bytes) -> float:
     counts = collections.Counter(data)
     n = len(data)
     return -sum((c / n) * math.log2(c / n) for c in counts.values())
+
+
+def _printable_ratio(b: bytes) -> float:
+    if not b:
+        return 0.0
+    return sum(1 for x in b if 0x20 <= x <= 0x7E or x in (9, 10, 13)) / len(b)
+
+
+def _decode_meaning(b: bytes) -> str | None:
+    """Is a decoded layer worth keeping? 'container' = a gzip/zlib magic (keep decoding);
+    'text' = looks like text/structured (printable and low-entropy) — a terminal candidate;
+    None = still opaque/random, so decoding it further would just be reading noise as signal."""
+    if len(b) >= 2 and (b[:2] == b"\x1f\x8b" or (b[0] == 0x78 and b[1] in (0x01, 0x9C, 0xDA))):
+        return "container"
+    if _printable_ratio(b) > 0.85 and _shannon_entropy(b) < 5.2:
+        return "text"
+    return None
+
+
+def _decode_candidates(b: bytes) -> list[tuple[str, bytes]]:
+    """One-layer decode attempts, in priority order. Each must produce bytes != input."""
+    out: list[tuple[str, bytes]] = []
+    if len(b) >= 4 and b[:2] == b"\x1f\x8b":
+        try: out.append(("gzip", gzip.decompress(b)))
+        except Exception: pass
+    if len(b) >= 2 and b[0] == 0x78 and b[1] in (0x01, 0x9C, 0xDA):
+        try: out.append(("zlib", zlib.decompress(b)))
+        except Exception: pass
+    s = b.strip()
+    if len(s) >= 16 and len(s) % 4 == 0 and re.fullmatch(rb"[A-Za-z0-9+/]+=*", s):
+        try:
+            d = base64.b64decode(s, validate=True)
+            if d and d != b: out.append(("base64", d))
+        except Exception: pass
+    if len(s) >= 16 and re.fullmatch(rb"[A-Za-z0-9_-]+=*", s):
+        try:
+            d = base64.urlsafe_b64decode(s + b"=" * ((-len(s)) % 4))
+            if d and d != b: out.append(("base64url", d))
+        except Exception: pass
+    if len(s) >= 16 and len(s) % 2 == 0 and re.fullmatch(rb"[0-9a-fA-F]+", s):
+        try:
+            d = bytes.fromhex(s.decode("ascii"))
+            if d != b: out.append(("hex", d))
+        except Exception: pass
+    if b"%" in b:
+        try:
+            d = unquote_to_bytes(b)
+            if d != b: out.append(("urldecode", d))
+        except Exception: pass
+    return out
+
+
+def deep_decode(data: bytes, max_depth: int = 4) -> dict | None:
+    """Walk urldecode/base64/hex/gzip/zlib layers up to ``max_depth``, keeping a layer only when it
+    is meaningful (a container magic, or printable + low-entropy) — so encrypted/random blobs stay
+    opaque instead of being 'decoded' into noise. A JSON verdict requires a real ``json.loads`` (so
+    e.g. ``{ghD`` — printable, starts with '{' — is reported as text, not JSON). Returns the codec
+    chain + terminal classification only; NEVER the decoded content (boundary #6). None = nothing
+    meaningful decoded."""
+    chain: list[str] = []
+    cur = data
+    for _ in range(max(1, max_depth)):
+        pick = next(((n, d) for n, d in _decode_candidates(cur) if _decode_meaning(d)), None)
+        if pick is None:
+            break
+        name, dec = pick
+        chain.append(name)
+        cur = dec
+        if _decode_meaning(dec) == "text":
+            try:
+                obj = json.loads(dec)
+            except Exception:
+                return {"chain": chain, "terminal": "text", "json_keys": None}
+            return {"chain": chain, "terminal": "json",
+                    "json_keys": len(obj) if isinstance(obj, dict) else None}
+    return {"chain": chain, "terminal": "opaque", "json_keys": None} if chain else None
 # Nuclei exposure/error/panel matchers — the body IS the artifact, or reveals internals.
 _PRIVKEY_RE = re.compile(r'-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY')
 _ENV_FILE_RE = re.compile(
@@ -485,6 +567,7 @@ _REASON_WEIGHT: dict[str, int] = {
     "route:graphql": 15,
     "security_relevant_route": 15,
     "encoded_outbound_blob": 15,
+    "encoded_blob_decoded": 22,
     "encoded_get_exfil": 30,
     "large_get_exfil_query": 20,
     "resp:cors": 10,
@@ -1446,13 +1529,32 @@ class SignalEngine:
                 except (ValueError, TypeError):
                     pass
             # Encoded blob: large opaque base64 string in POST body suggests packaged/obfuscated data.
-            if _B64_BLOB.search(req_body):
+            blob_match = _B64_BLOB.search(req_body)
+            if blob_match:
                 reasons.append("encoded_outbound_blob")
-                hypotheses.append({
-                    "family": "encoded-payload",
-                    "statement": "The request body contains a large base64-encoded blob — may be compressed or obfuscated data being forwarded to a third party.",
-                    "targets": ["blob decode", "compression format", "inner schema"],
-                })
+                # Try to actually unwrap it (base64/gzip/zlib/hex/urldecode, depth 4). A meaningful
+                # decode turns "may be obfuscated" into "is trivially-reversible, not encrypted" and
+                # reports the codec chain + structure only — never the decoded bytes (boundary #6).
+                decoded = deep_decode(blob_match.group(0).encode("latin-1", "ignore"))
+                if decoded and decoded["terminal"] != "opaque":
+                    reasons.append("encoded_blob_decoded")
+                    struct = (f"JSON ({decoded['json_keys']} fields)" if decoded["terminal"] == "json"
+                              else decoded["terminal"])
+                    hypotheses.append({
+                        "family": "encoded-payload",
+                        "statement": (f"The request body's large blob is not encrypted — it "
+                                      f"{'->'.join(decoded['chain'])}-decodes to {struct}. Trivially "
+                                      "reversible obfuscation; inspect what structured data it carries "
+                                      "and whether it leaves with consent."),
+                        "targets": ["decoded structure", "codec chain: " + "->".join(decoded["chain"]),
+                                    "collection scope"],
+                    })
+                else:
+                    hypotheses.append({
+                        "family": "encoded-payload",
+                        "statement": "The request body contains a large base64-encoded blob that did not decode to readable structure — may be compressed, encrypted, or obfuscated data forwarded to a third party.",
+                        "targets": ["blob decode", "compression format", "inner schema"],
+                    })
 
         # H4: JWT sensitive claims — decode JWT payload from URL/request body; flag privilege claims.
         # Raw token values are never placed in the envelope; only the claim names are reported.

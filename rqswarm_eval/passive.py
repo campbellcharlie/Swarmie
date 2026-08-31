@@ -630,6 +630,30 @@ def _text(value) -> str:
     return _bytes(value).decode("utf-8", "replace")
 
 
+def unmojibake(b: bytes, rounds: int = 3) -> bytes:
+    """Invert a latin-1 -> UTF-8 mojibake round-trip some capture proxies apply when persisting
+    binary bodies: every byte >= 0x80 is re-encoded as a 2-byte UTF-8 sequence, so a gzip body
+    whose true magic is ``1f 8b 08`` is stored (and measured) as ``1f c2 8b 08``. That both hides
+    the container magic and *deflates* Shannon entropy (the repeated ``c2/c3`` lead bytes are
+    low-entropy), which silently defeats entropy/magic-gated opaque-body detection.
+
+    Only inverts when the bytes are a UTF-8 encoding of an all-latin-1 string; genuine binary
+    (invalid UTF-8) and ordinary multibyte text are returned unchanged, and the transform is
+    idempotent (double-mojibake is unwound up to ``rounds`` times)."""
+    for _ in range(max(1, rounds)):
+        try:
+            s = b.decode("utf-8")
+        except UnicodeDecodeError:
+            return b
+        if not s or any(ord(c) > 0xFF for c in s):
+            return b
+        nb = s.encode("latin-1")
+        if nb == b:
+            return b
+        b = nb
+    return b
+
+
 def _lower_headers(raw) -> dict[str, str]:
     return {k.lower(): v for k, v in parse_headers(_text(raw)).items()}
 
@@ -1265,7 +1289,9 @@ class SignalEngine:
         # Large high-entropy (encrypted/opaque) outbound body: data leaving the browser that is
         # deliberately unreadable to a proxy/user — e.g. an encrypted device+behavioral fingerprint
         # POSTed to a third-party risk vendor. No baseline needed; one such POST is the signal.
-        _raw_req = _bytes(row.get("request_body"))
+        # Undo any latin-1->UTF-8 mojibake so entropy/magic see the true binary body, not the
+        # low-entropy re-encoded form (a mojibaked gzip reads as ~6.2 bits, the real body ~7.9).
+        _raw_req = unmojibake(_bytes(row.get("request_body")))
         if len(_raw_req) >= 2048 and not _base_type(request_type).startswith(
                 ("image/", "audio/", "video/", "multipart/")):
             if req_body.lstrip()[:1] not in "{[" and _shannon_entropy(_raw_req[:16384]) >= 7.2:

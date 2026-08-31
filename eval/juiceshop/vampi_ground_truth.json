@@ -1,0 +1,14 @@
+{
+  "_note": "VAmPI (modern REST API) findings labeled by Claude from a full read of the capture. Out-of-sample: Swarmie was never tuned against this app. Keyed by request_id.",
+  "findings": [
+    {"request_id": 4, "severity": "crit", "finding": "GET /users/v1/_debug dumps ALL users with plaintext passwords", "category": "Excessive Data Exposure"},
+    {"request_id": 12, "severity": "crit", "finding": "BOLA: PUT changes another user's password", "category": "Broken Object Level Auth"},
+    {"request_id": 11, "severity": "high", "finding": "BOLA: PUT updates another user's email", "category": "Broken Object Level Auth"},
+    {"request_id": 13, "severity": "high", "finding": "BOLA: DELETE removes another user", "category": "Broken Object Level Auth"},
+    {"request_id": 9, "severity": "high", "finding": "BOLA: GET reads another user's book secret", "category": "Broken Object Level Auth"},
+    {"request_id": 3, "severity": "med", "finding": "GET /users/v1 enumerates all users/emails", "category": "Excessive Data Exposure"},
+    {"request_id": 2, "severity": "med", "finding": "POST login issues an HS256 JWT (weak-secret class)", "category": "Broken Authentication"},
+    {"request_id": 1, "severity": "med", "finding": "POST register accepts mass-assignment (admin flag)", "category": "Mass Assignment"},
+    {"request_id": 5, "severity": "low", "finding": "GET /users/v1/name1 single-user data exposure", "category": "Sensitive Data Exposure"}
+  ]
+}

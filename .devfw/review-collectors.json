@@ -1,0 +1,130 @@
+{
+  "version": 1,
+  "dimensions": {
+    "test-coverage": [
+      {
+        "id": "test-files",
+        "enabled": true,
+        "type": "file-glob",
+        "cwd": ".",
+        "patterns": [
+          "tests/**/*.py",
+          "src/**/*.test.ts",
+          "**/*_test.go"
+        ],
+        "matchMode": "any",
+        "minimumMatches": 1,
+        "successStatus": "pass",
+        "failureStatus": "partial",
+        "successSummary": "Test files were found in the repository.",
+        "failureSummary": "No matching test files were found for the configured patterns."
+      },
+      {
+        "id": "junit-report",
+        "enabled": false,
+        "type": "junit",
+        "cwd": ".",
+        "report": "reports/junit.xml",
+        "minimumTests": 1,
+        "successStatus": "verified",
+        "failureStatus": "fail",
+        "successSummary": "JUnit results passed.",
+        "failureSummary": "JUnit results reported failing tests."
+      },
+      {
+        "id": "coverage-report",
+        "enabled": false,
+        "type": "coverage",
+        "cwd": ".",
+        "report": "coverage/coverage-summary.json",
+        "format": "auto",
+        "thresholds": {
+          "line": 90,
+          "branch": 80
+        },
+        "successStatus": "verified",
+        "failureStatus": "partial",
+        "successSummary": "Coverage thresholds passed.",
+        "failureSummary": "Coverage thresholds were missed."
+      },
+      {
+        "id": "test-command",
+        "enabled": true,
+        "type": "command",
+        "cwd": ".",
+        "command": [
+          "pytest",
+          "-q"
+        ],
+        "successStatus": "pass",
+        "failureStatus": "fail",
+        "successSummary": "Configured test suite passed.",
+        "failureSummary": "Configured test suite failed.",
+        "timeoutSec": 60
+      }
+    ],
+    "performance": [
+      {
+        "id": "lighthouse-performance",
+        "enabled": false,
+        "type": "lighthouse",
+        "cwd": ".",
+        "report": "reports/lighthouse.json",
+        "categories": {
+          "performance": 0.9
+        },
+        "successStatus": "verified",
+        "failureStatus": "partial",
+        "successSummary": "Performance budget report passed.",
+        "failureSummary": "Performance budget report missed at least one threshold."
+      }
+    ],
+    "accessibility": [
+      {
+        "id": "axe-report",
+        "enabled": false,
+        "type": "axe",
+        "cwd": ".",
+        "report": "reports/axe.json",
+        "maxViolations": 0,
+        "maxIncomplete": 0,
+        "successStatus": "verified",
+        "failureStatus": "fail",
+        "successSummary": "Accessibility audit found no blocking violations.",
+        "failureSummary": "Accessibility audit found blocking violations."
+      },
+      {
+        "id": "lighthouse-accessibility",
+        "enabled": false,
+        "type": "lighthouse",
+        "cwd": ".",
+        "report": "reports/lighthouse.json",
+        "categories": {
+          "accessibility": 0.95
+        },
+        "successStatus": "pass",
+        "failureStatus": "partial",
+        "successSummary": "Lighthouse accessibility threshold passed.",
+        "failureSummary": "Lighthouse accessibility threshold was missed."
+      }
+    ],
+    "security": [
+      {
+        "id": "dependency-audit",
+        "enabled": false,
+        "type": "security-audit",
+        "cwd": ".",
+        "report": "reports/security-audit.json",
+        "maxBySeverity": {
+          "critical": 0,
+          "high": 0
+        },
+        "maxTotal": 0,
+        "successStatus": "verified",
+        "failureStatus": "fail",
+        "successSummary": "Dependency audit is clean at the configured severity bar.",
+        "failureSummary": "Dependency audit found vulnerabilities above the configured bar."
+      }
+    ]
+  }
+}

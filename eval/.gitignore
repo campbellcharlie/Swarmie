@@ -1,0 +1,6 @@
+# regenerable capture data (produced by crawl.py / passive / dump_raw.py)
+juiceshop/*.db
+juiceshop/arm_a_raw.txt
+juiceshop/*.jsonl
+juiceshop/*.graph.json
+juiceshop/challenges.json

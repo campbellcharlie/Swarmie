@@ -1,0 +1,24 @@
+{
+  "_note": "Labeled by Claude (the judge) from a full read of eval/juiceshop/arm_a_raw.txt. Each entry is a real finding present in THIS 31-request capture, keyed to the request_id that carries it. severity: crit|high|med|low. This is the oracle for scoring Swarmie's signals (Arm B).",
+  "findings": [
+    {"request_id": 14, "severity": "crit", "finding": "SQLi auth bypass: ' OR 1=1-- returns an admin JWT", "category": "Injection"},
+    {"request_id": 14, "severity": "high", "finding": "JWT payload leaks admin password hash + role + email", "category": "Sensitive Data Exposure"},
+    {"request_id": 29, "severity": "high", "finding": "Poison null byte (%2500) reads the .bak file past the extension filter", "category": "Improper Input Validation"},
+    {"request_id": 27, "severity": "high", "finding": "FTP directory listing exposes incident-support.kdbx (KeePass), coupons.bak, backups", "category": "Sensitive Data Exposure"},
+    {"request_id": 7, "severity": "high", "finding": "Full admin application-configuration dumped", "category": "Security Misconfiguration"},
+    {"request_id": 31, "severity": "high", "finding": "Full admin application-configuration dumped (repeat)", "category": "Security Misconfiguration"},
+    {"request_id": 16, "severity": "high", "finding": "GET /api/Users returns all users, emails, roles, real dev email", "category": "Broken Access Control"},
+    {"request_id": 18, "severity": "high", "finding": "IDOR: /rest/basket/1 accessible", "category": "Broken Access Control"},
+    {"request_id": 19, "severity": "high", "finding": "IDOR: /rest/basket/2 (other user's basket) accessible", "category": "Broken Access Control"},
+    {"request_id": 21, "severity": "high", "finding": "GET /api/Cards exposes payment card data", "category": "Sensitive Data Exposure"},
+    {"request_id": 12, "severity": "high", "finding": "SQLi in search q=')) -- returns full table (21KB vs 0.9KB)", "category": "Injection"},
+    {"request_id": 8, "severity": "med", "finding": "Prometheus /metrics exposed (26KB internals)", "category": "Observability Failures"},
+    {"request_id": 25, "severity": "med", "finding": "Stack trace / file-path disclosure on POST /api/Feedbacks 500", "category": "Security Misconfiguration"},
+    {"request_id": 30, "severity": "med", "finding": "Open-redirect surface + stack trace on /redirect", "category": "Unvalidated Redirects"},
+    {"request_id": 24, "severity": "med", "finding": "Feedback data leaks a wallet seed phrase + emails", "category": "Sensitive Data Exposure"},
+    {"request_id": 17, "severity": "med", "finding": "GET /api/Users/1 single-user data exposure", "category": "Sensitive Data Exposure"},
+    {"request_id": 22, "severity": "med", "finding": "GET /api/Addresss exposes address PII", "category": "Sensitive Data Exposure"},
+    {"request_id": 2, "severity": "low", "finding": "robots.txt discloses /ftp", "category": "Security through Obscurity"},
+    {"request_id": 4, "severity": "low", "finding": "security.txt discloses hidden score-board path", "category": "Security through Obscurity"}
+  ]
+}

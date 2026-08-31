@@ -1,0 +1,18 @@
+{
+  "meta": {
+    "name": "passive-triage",
+    "framework": "devfw",
+    "frameworkVersion": 1,
+    "createdOn": "2026-08-29"
+  },
+  "mode": "brownfield",
+  "status": "active",
+  "currentPhase": "review",
+  "lastPhaseChangeOn": "2026-08-29",
+  "preflight": null,
+  "stack": {
+    "primary": "unknown",
+    "platforms": []
+  },
+  "notes": []
+}

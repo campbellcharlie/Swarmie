@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "generatedOn": "2026-08-29",
+  "dimensions": {
+    "product-completeness": {
+      "status": "unknown",
+      "summary": "",
+      "evidence": [],
+      "updatedOn": "2026-08-29"
+    },
+    "ux-quality": {
+      "status": "unknown",
+      "summary": "",
+      "evidence": [],
+      "updatedOn": "2026-08-29"
+    },
+    "ui-quality": {
+      "status": "unknown",
+      "summary": "",
+      "evidence": [],
+      "updatedOn": "2026-08-29"
+    },
+    "code-quality": {
+      "status": "unknown",
+      "summary": "",
+      "evidence": [],
+      "updatedOn": "2026-08-29"
+    },
+    "test-coverage": {
+      "status": "pass",
+      "summary": "2/2 enabled collector(s) met the configured bar. Test files were found in the repository. Matched 9 file(s): tests/**/*.py=9, src/**/*.test.ts=0, **/*_test.go=0. Configured test suite passed. Exit code 0.",
+      "evidence": [
+        "[test-files] Matched 9 file(s): tests/**/*.py=9, src/**/*.test.ts=0, **/*_test.go=0.",
+        "matches: tests/conftest.py, tests/test_contracts.py, tests/test_differ.py, tests/test_engine.py, tests/test_fixtures.py",
+        "[test-command] command=pytest -q exit=0",
+        "stdout: ........................................................................ [ 49%]\n........................................................................ [ 99%]\n.                                                                        [100%]\n145 passed in 14.44s"
+      ],
+      "updatedOn": "2026-08-29"
+    },
+    "eval-coverage": {
+      "status": "unknown",
+      "summary": "",
+      "evidence": [],
+      "updatedOn": "2026-08-29"
+    },
+    "performance": {
+      "status": "unknown",
+      "summary": "",
+      "evidence": [],
+      "updatedOn": "2026-08-29"
+    },
+    "accessibility": {
+      "status": "unknown",
+      "summary": "",
+      "evidence": [],
+      "updatedOn": "2026-08-29"
+    },
+    "security": {
+      "status": "unknown",
+      "summary": "",
+      "evidence": [],
+      "updatedOn": "2026-08-29"
+    },
+    "observability": {
+      "status": "unknown",
+      "summary": "",
+      "evidence": [],
+      "updatedOn": "2026-08-29"
+    },
+    "deployment-readiness": {
+      "status": "unknown",
+      "summary": "",
+      "evidence": [],
+      "updatedOn": "2026-08-29"
+    }
+  }
+}

@@ -1182,8 +1182,8 @@ class SignalEngine:
 
         # H3: Open redirect — a 3xx to another domain is only a finding when the DESTINATION is
         # attacker-influencable. Flagging every cross-domain 3xx made this the #1 signal on a
-        # clean browse by matching designed SSO hops (Wikimedia CentralAutoLogin -> auth.wikimedia
-        # .org), CDN and consent-flow redirects. Require the target to echo a request parameter.
+        # clean browse by matching designed SSO hops (a provider's central-auto-login -> its auth
+        # subdomain), CDN and consent-flow redirects. Require the target to echo a request parameter.
         status_code = int(row.get("status_code") or 0)
         location = resp.get("location", "")
         if 300 <= status_code < 400 and location:

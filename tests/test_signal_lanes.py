@@ -292,10 +292,10 @@ def _redirect_row(location, query="", host="app.test"):
 
 def test_open_redirect_needs_an_attacker_controlled_destination():
     # A cross-domain 3xx alone is not an open redirect — designed SSO/CDN hops do it constantly.
-    # This fired on Wikimedia's CentralAutoLogin -> auth.wikimedia.org and ranked #1 on a clean browse.
+    # This fired on a provider's central-auto-login -> auth subdomain and ranked #1 on a clean browse.
     hr = lambda **k: SignalEngine().header_reasons(_redirect_row(**k))
     assert "open_redirect_to_external" not in hr(
-        location="https://auth.wikimedia.org/checkLoggedIn", query="type=script&usesul3=1")
+        location="https://auth.example.org/checkLoggedIn", query="type=script&usesul3=1")
     # target echoed from a request parameter -> genuinely attacker-influencable
     assert "open_redirect_to_external" in hr(
         location="https://evil.example/cb", query="next=https://evil.example/cb")
